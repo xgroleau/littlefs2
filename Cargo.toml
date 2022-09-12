@@ -22,7 +22,9 @@ default-features = false
 version = "0.2"
 
 [dependencies.littlefs2-sys]
-version = "0.1.6"
+git = "https://github.com/xgroleau/littlefs2-sys"
+tag = "v0.1.7"
+version = "0.1.7"
 
 [dependencies.serde]
 version = "1"

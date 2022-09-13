@@ -4,9 +4,7 @@
 pub use generic_array::ArrayLength;
 use littlefs2_sys as ll;
 
-use crate::{
-    io::Result,
-};
+use crate::io::Result;
 
 /// Users of this library provide a "storage driver" by implementing this trait.
 ///
@@ -23,7 +21,6 @@ use crate::{
 /// Once that's done, we can get rid of `generic-array`s, and replace the
 /// `*_SIZE` types with `usize`s.
 pub trait Storage {
-
     // /// Error type for user-provided read/write/erase methods
     // type Error = usize;
 
@@ -41,6 +38,10 @@ pub trait Storage {
     /// Number of erasable blocks.
     /// Hence storage capacity is `BLOCK_COUNT * BLOCK_SIZE`
     const BLOCK_COUNT: usize;
+
+    /// Optional upper limit to the total space given to metadata pairs in bytes
+    /// On device with large blocks, you may want to set this to low size
+    const METADATA_MAX: usize = Self::BLOCK_SIZE;
 
     /// Suggested values are 100-1000, higher is more performant but
     /// less wear-leveled.  Default of -1 disables wear-leveling.

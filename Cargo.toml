@@ -23,8 +23,8 @@ version = "0.2"
 
 [dependencies.littlefs2-sys]
 git = "https://github.com/xgroleau/littlefs2-sys"
-tag = "v0.1.7"
-version = "0.1.7"
+tag = "v0.1.8"
+version = "0.1.8"
 
 [dependencies.serde]
 version = "1"

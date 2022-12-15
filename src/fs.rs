@@ -851,8 +851,8 @@ impl<'a, 'b, Storage: driver::Storage> File<'a, 'b, Storage> {
     /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.
     /// - Not sure what happens in `lfs_file_sync`, but it should be easy to just error on
     ///   not LFS_F_OPENED...
-    pub unsafe fn close(mut self) -> Result<()> {
-        self.raw.close(&mut self.fs)
+    pub unsafe fn close(self) -> Result<()> {
+        self.raw.close(&self.fs)
     }
 
     /// Synchronize file contents to storage.
@@ -1380,7 +1380,6 @@ mod tests {
     use super::*;
     use core::convert::TryInto;
     use driver::Storage as LfsStorage;
-    use generic_array::typenum::consts;
     use io::Result as LfsResult;
     const_ram_storage!(TestStorage, 4096);
 

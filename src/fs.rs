@@ -618,8 +618,161 @@ impl<S: driver::Storage> FileAllocation<S> {
     }
 }
 
+/// A raw file that is unsafe to use.
+/// Can allow to persist the cache between writes without ownership of the filesystem
+///
+/// **WARNING** This struct is unsafe, you can have two RawFile that points to the
+/// same place in the file system
+pub struct RawFile<'a, S: driver::Storage> {
+    alloc: RefCell<&'a mut FileAllocation<S>>,
+}
+
+impl<'b, Storage: driver::Storage> RawFile<'b, Storage> {
+    /// Returns a new OpenOptions object.
+    ///
+    /// This function returns a new OpenOptions object that you can use to open or create a file
+    /// with specific options if open() or create() are not appropriate.
+    ///
+    /// It is equivalent to OpenOptions::new() but allows you to write more readable code.
+    /// This also avoids the need to import OpenOptions`.
+    pub unsafe fn open(
+        fs: &mut Filesystem<'_, Storage>,
+        alloc: &'b mut FileAllocation<Storage>,
+        path: &Path,
+    ) -> Result<Self> {
+        OpenOptions::new().read(true).open_raw(fs, alloc, path)
+    }
+
+    pub unsafe fn create(
+        fs: &mut Filesystem<'_, Storage>,
+        alloc: &'b mut FileAllocation<Storage>,
+        path: &Path,
+    ) -> Result<Self> {
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open_raw(fs, alloc, path)
+    }
+
+    /// Sync the file and drop it from the internal linked list.
+    /// Not doing this is UB, which is why we have all the closure-based APIs.
+    ///
+    /// TODO: check if this can be closed >1 times, if so make it safe
+    ///
+    /// Update: It seems like there's an assertion on a flag called `LFS_F_OPENED`:
+    /// https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2549
+    /// https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2566
+    ///
+    /// - On second call, shouldn't find ourselves in the "mlist of mdirs"
+    /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.
+    /// - Not sure what happens in `lfs_file_sync`, but it should be easy to just error on
+    ///   not LFS_F_OPENED...
+    pub unsafe fn close(self, fs: &Filesystem<'_, Storage>) -> Result<()> {
+        let return_code = ll::lfs_file_close(
+            &mut fs.alloc.borrow_mut().state,
+            &mut self.alloc.borrow_mut().state,
+        );
+        io::result_from((), return_code)
+    }
+
+    /// Synchronize file contents to storage.
+    pub fn sync(&self, fs: &Filesystem<'_, Storage>) -> Result<()> {
+        let return_code = unsafe {
+            ll::lfs_file_sync(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+            )
+        };
+        io::result_from((), return_code)
+    }
+
+    /// Size of the file in bytes.
+    pub fn len(&self, fs: &Filesystem<'_, Storage>) -> Result<usize> {
+        let return_code = unsafe {
+            ll::lfs_file_size(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+            )
+        };
+        io::result_from(return_code as usize, return_code)
+    }
+
+    /// Truncates or extends the underlying file, updating the size of this file to become size.
+    ///
+    /// If the size is less than the current file's size, then the file will be shrunk. If it is
+    /// greater than the current file's size, then the file will be extended to size and have all
+    /// of the intermediate data filled in with 0s.
+    pub fn set_len(&self, fs: &Filesystem<'_, Storage>, size: usize) -> Result<()> {
+        let return_code = unsafe {
+            ll::lfs_file_truncate(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+                size as u32,
+            )
+        };
+        io::result_from((), return_code)
+    }
+
+    // This belongs in `io::Read` but really don't want that to have a generic parameter
+    pub fn read_to_end<const N: usize>(
+        &self,
+        fs: &Filesystem<'_, Storage>,
+        buf: &mut heapless::Vec<u8, N>,
+    ) -> Result<usize> {
+        // My understanding of
+        // https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2816
+        // is that littlefs keeps reading until either the buffer is full, or the file is exhausted
+
+        let had = buf.len();
+        // no panic by construction
+        buf.resize_default(buf.capacity()).unwrap();
+        // use io::Read;
+        let read = self.read(fs, &mut buf[had..])?;
+        // no panic by construction
+        buf.resize_default(had + read).unwrap();
+        Ok(read)
+    }
+
+    pub fn read(&self, fs: &Filesystem<'_, Storage>, buf: &mut [u8]) -> Result<usize> {
+        let return_code = unsafe {
+            ll::lfs_file_read(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+                buf.as_mut_ptr() as *mut cty::c_void,
+                buf.len() as u32,
+            )
+        };
+        io::result_from(return_code as usize, return_code)
+    }
+
+    pub fn seek(&self, fs: &Filesystem<'_, Storage>, pos: io::SeekFrom) -> Result<usize> {
+        let return_code = unsafe {
+            ll::lfs_file_seek(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+                pos.off(),
+                pos.whence(),
+            )
+        };
+        io::result_from(return_code as usize, return_code)
+    }
+
+    pub fn write(&self, fs: &Filesystem<'_, Storage>, buf: &[u8]) -> Result<usize> {
+        let return_code = unsafe {
+            ll::lfs_file_write(
+                &mut fs.alloc.borrow_mut().state,
+                &mut self.alloc.borrow_mut().state,
+                buf.as_ptr() as *const cty::c_void,
+                buf.len() as u32,
+            )
+        };
+        io::result_from(return_code as usize, return_code)
+    }
+}
+
 pub struct File<'a, 'b, S: driver::Storage> {
-    alloc: RefCell<&'b mut FileAllocation<S>>,
+    raw: RawFile<'b, S>,
     fs: &'b Filesystem<'a, S>,
 }
 
@@ -698,34 +851,18 @@ impl<'a, 'b, Storage: driver::Storage> File<'a, 'b, Storage> {
     /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.
     /// - Not sure what happens in `lfs_file_sync`, but it should be easy to just error on
     ///   not LFS_F_OPENED...
-    pub unsafe fn close(self) -> Result<()> {
-        let return_code = ll::lfs_file_close(
-            &mut self.fs.alloc.borrow_mut().state,
-            &mut self.alloc.borrow_mut().state,
-        );
-        io::result_from((), return_code)
+    pub unsafe fn close(mut self) -> Result<()> {
+        self.raw.close(&mut self.fs)
     }
 
     /// Synchronize file contents to storage.
     pub fn sync(&self) -> Result<()> {
-        let return_code = unsafe {
-            ll::lfs_file_sync(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-            )
-        };
-        io::result_from((), return_code)
+        self.raw.sync(self.fs)
     }
 
     /// Size of the file in bytes.
     pub fn len(&self) -> Result<usize> {
-        let return_code = unsafe {
-            ll::lfs_file_size(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-            )
-        };
-        io::result_from(return_code as usize, return_code)
+        self.raw.len(self.fs)
     }
 
     /// Truncates or extends the underlying file, updating the size of this file to become size.
@@ -734,42 +871,24 @@ impl<'a, 'b, Storage: driver::Storage> File<'a, 'b, Storage> {
     /// greater than the current file's size, then the file will be extended to size and have all
     /// of the intermediate data filled in with 0s.
     pub fn set_len(&self, size: usize) -> Result<()> {
-        let return_code = unsafe {
-            ll::lfs_file_truncate(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-                size as u32,
-            )
-        };
-        io::result_from((), return_code)
+        self.raw.set_len(self.fs, size)
     }
 
     // This belongs in `io::Read` but really don't want that to have a generic parameter
     pub fn read_to_end<const N: usize>(&self, buf: &mut heapless::Vec<u8, N>) -> Result<usize> {
-        // My understanding of
-        // https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2816
-        // is that littlefs keeps reading until either the buffer is full, or the file is exhausted
-
-        let had = buf.len();
-        // no panic by construction
-        buf.resize_default(buf.capacity()).unwrap();
-        // use io::Read;
-        let read = self.read(&mut buf[had..])?;
-        // no panic by construction
-        buf.resize_default(had + read).unwrap();
-        Ok(read)
+        self.raw.read_to_end(self.fs, buf)
     }
 
     pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        <Self as io::Read>::read(self, buf)
+        self.raw.read(self.fs, buf)
     }
 
     pub fn seek(&self, pos: io::SeekFrom) -> Result<usize> {
-        <Self as io::Seek>::seek(self, pos)
+        self.raw.seek(&self.fs, pos)
     }
 
     pub fn write(&self, buf: &[u8]) -> Result<usize> {
-        <Self as io::Write>::write(self, buf)
+        self.raw.write(&self.fs, buf)
     }
 }
 
@@ -818,8 +937,46 @@ impl OpenOptions {
         );
 
         let file = File {
-            alloc: RefCell::new(alloc),
+            raw: RawFile {
+                alloc: RefCell::new(alloc),
+            },
             fs,
+        };
+
+        io::result_from(file, return_code)
+    }
+
+    /// Open the file with the options previously specified, keeping references.
+    ///
+    /// unsafe since UB can arise if files are not closed (see below).
+    /// Also, the file returned can be pointed by multiple RawFiles.
+    ///
+    /// The alternative method `open_and_then` is suggested.
+    ///
+    /// Note that:
+    /// - files *must* be closed before going out of scope (they are stored in a linked list),
+    ///   closing removes them from there
+    /// - since littlefs is supposed to be *fail-safe*, we can't just close files in
+    ///   Drop and panic if something went wrong.
+    /// - You **MUST** make sure that no other files will point to the same path during the lifetime
+    pub unsafe fn open_raw<'a, S: driver::Storage>(
+        &self,
+        fs: &mut Filesystem<'_, S>,
+        alloc: &'a mut FileAllocation<S>,
+        path: &Path,
+    ) -> Result<RawFile<'a, S>> {
+        alloc.config.buffer = &mut alloc.cache as *mut _ as *mut cty::c_void;
+
+        let return_code = ll::lfs_file_opencfg(
+            &mut fs.alloc.borrow_mut().state,
+            &mut alloc.state,
+            path.as_ptr(),
+            self.0.bits() as i32,
+            &alloc.config,
+        );
+
+        let file = RawFile {
+            alloc: RefCell::new(alloc),
         };
 
         io::result_from(file, return_code)
@@ -906,47 +1063,23 @@ impl OpenOptions {
 
 impl<S: driver::Storage> io::Read for File<'_, '_, S> {
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        let return_code = unsafe {
-            ll::lfs_file_read(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-                buf.as_mut_ptr() as *mut cty::c_void,
-                buf.len() as u32,
-            )
-        };
-        io::result_from(return_code as usize, return_code)
+        self.read(buf)
     }
 }
 
 impl<S: driver::Storage> io::Seek for File<'_, '_, S> {
     fn seek(&self, pos: io::SeekFrom) -> Result<usize> {
-        let return_code = unsafe {
-            ll::lfs_file_seek(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-                pos.off(),
-                pos.whence(),
-            )
-        };
-        io::result_from(return_code as usize, return_code)
+        self.seek(pos)
     }
 }
 
 impl<S: driver::Storage> io::Write for File<'_, '_, S> {
     fn write(&self, buf: &[u8]) -> Result<usize> {
-        let return_code = unsafe {
-            ll::lfs_file_write(
-                &mut self.fs.alloc.borrow_mut().state,
-                &mut self.alloc.borrow_mut().state,
-                buf.as_ptr() as *const cty::c_void,
-                buf.len() as u32,
-            )
-        };
-        io::result_from(return_code as usize, return_code)
+        self.write(buf)
     }
 
     fn flush(&self) -> Result<()> {
-        Ok(())
+        self.sync()
     }
 }
 

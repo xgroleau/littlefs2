@@ -668,12 +668,15 @@ impl<'b, Storage: driver::Storage> RawFile<'b, Storage> {
     /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.
     /// - Not sure what happens in `lfs_file_sync`, but it should be easy to just error on
     ///   not LFS_F_OPENED...
-    pub unsafe fn close(self, fs: &Filesystem<'_, Storage>) -> Result<()> {
+    pub unsafe fn close(
+        self,
+        fs: &Filesystem<'_, Storage>,
+    ) -> Result<&'b mut FileAllocation<Storage>> {
         let return_code = ll::lfs_file_close(
             &mut fs.alloc.borrow_mut().state,
             &mut self.alloc.borrow_mut().state,
         );
-        io::result_from((), return_code)
+        io::result_from(self.alloc.into_inner(), return_code)
     }
 
     /// Synchronize file contents to storage.
@@ -851,7 +854,7 @@ impl<'a, 'b, Storage: driver::Storage> File<'a, 'b, Storage> {
     /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.
     /// - Not sure what happens in `lfs_file_sync`, but it should be easy to just error on
     ///   not LFS_F_OPENED...
-    pub unsafe fn close(self) -> Result<()> {
+    pub unsafe fn close(self) -> Result<&'b mut FileAllocation<Storage>> {
         self.raw.close(&self.fs)
     }
 

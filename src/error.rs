@@ -1,98 +1,7 @@
-//! Traits and types for core I/O functionality.
+//! Error result used in the crate
 
-pub mod prelude;
-
-use littlefs2_sys as ll;
-
-/// The `Read` trait allows for reading bytes from a file.
-pub trait Read {
-    /// Read at most buf.len() bytes.
-    /// Upon success, return how many bytes were read.
-    fn read(&self, buf: &mut [u8]) -> Result<usize>;
-
-    fn read_exact(&self, buf: &mut [u8]) -> Result<()> {
-        // Same assumption as for `read_to_end`.
-        let len = self.read(buf)?;
-        if len == buf.len() {
-            Ok(())
-        } else {
-            // TODO: Decide whether to add an equivalent of `ErrorKind::UnexpectedEof`
-            Err(Error::Io)
-        }
-    }
-}
-
-/** The `Write` trait allows for writing bytes to a file.
-
-By analogy with `std::io::Write`, we also define a `flush()`
-method. In the current implementation, writes are final and
-flush has no effect.
-*/
-pub trait Write {
-    /// Write at most data.len() bytes.
-    /// The file will not necessarily be updated unless
-    /// flush is called as there is a cache.
-    /// Upon success, return how many bytes were written.
-    fn write(&self, data: &[u8]) -> Result<usize>;
-
-    /// Write out all pending writes to storage.
-    fn flush(&self) -> Result<()>;
-
-    fn write_all(&self, mut buf: &[u8]) -> Result<()> {
-        while !buf.is_empty() {
-            match self.write(buf) {
-                Ok(0) => {
-                    // failed to write whole buffer
-                    return Err(Error::Io);
-                }
-                Ok(n) => buf = &buf[n..],
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(())
-    }
-}
-
-/** Enumeration of possible methods to seek within an I/O object.
-
-Use the [`Seek`](../io/trait.Seek.html) trait.
-*/
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SeekFrom {
-    Start(u32),
-    End(i32),
-    Current(i32),
-}
-
-impl SeekFrom {
-    pub(crate) fn off(self) -> i32 {
-        match self {
-            SeekFrom::Start(u) => u as i32,
-            SeekFrom::End(i) => i,
-            SeekFrom::Current(i) => i,
-        }
-    }
-
-    pub(crate) fn whence(self) -> i32 {
-        match self {
-            SeekFrom::Start(_) => 0,
-            SeekFrom::End(_) => 2,
-            SeekFrom::Current(_) => 1,
-        }
-    }
-}
-
-/** The `Seek` trait provides a cursor which can be moved within a file.
-
-It is possible to seek relative to either end or the current offset.
-*/
-pub trait Seek {
-    /// Seek to an offset in bytes.
-    /// If successful, returns the new position from start of file.
-    fn seek(&self, pos: SeekFrom) -> Result<usize>;
-}
-
-pub type Result<T> = core::result::Result<T, Error>;
+use crate::ll;
+use crate::Result;
 
 /// Definition of errors that might be returned by filesystem functionality.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -130,6 +39,12 @@ pub enum Error {
     FilenameTooLong,
     /// Unknown error occurred, integer code specified.
     Unknown(i32),
+}
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
 }
 
 impl From<crate::path::Error> for Error {

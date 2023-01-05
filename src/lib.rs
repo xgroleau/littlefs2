@@ -90,10 +90,8 @@ Separately, keeping track of the allocations is a chore, we hope that
 
 ```
 # use littlefs2::fs::{Filesystem, File, OpenOptions};
-# use littlefs2::io::prelude::*;
 # use littlefs2::path::PathBuf;
-#
-# use littlefs2::{consts, ram_storage, driver, io::Result};
+# use littlefs2::{consts, ram_storage, driver, Result, SeekFrom};
 #
 #
 // example storage backend
@@ -123,12 +121,14 @@ assert_eq!(&buf, b"black smoke");
 ```
 */
 
+use core::convert::{TryFrom, TryInto};
+
 /// Low-level bindings
 pub use littlefs2_sys as ll;
 
-#[macro_use]
-extern crate delog;
-generate_macros!();
+// #[macro_use]
+// extern crate delog;
+// generate_macros!();
 
 /// cf. Macros documentation
 #[macro_use]
@@ -140,9 +140,12 @@ mod c_stubs;
 pub mod consts;
 pub mod driver;
 
+pub mod error;
 pub mod fs;
-pub mod io;
 pub mod path;
+
+pub use error::Error;
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// get information about the C backend
 pub fn version() -> Version {
@@ -153,12 +156,69 @@ pub fn version() -> Version {
 }
 
 /// Information about the C backend
-#[derive(Clone,Copy,Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Version {
-	/// On-disk format (currently: 2.0)
+    /// On-disk format (currently: 2.0)
     pub format: (u32, u32),
-	/// Backend release (currently: 2.1)
+    /// Backend release (currently: 2.1)
     pub backend: (u32, u32),
+}
+/** Enumeration of possible methods to seek within an I/O object.
+
+Use the [`Seek`](../io/trait.Seek.html) trait.
+*/
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SeekFrom {
+    Start(u32),
+    End(i32),
+    Current(i32),
+}
+
+impl SeekFrom {
+    pub(crate) fn off(self) -> i32 {
+        match self {
+            SeekFrom::Start(u) => u as i32,
+            SeekFrom::End(i) => i,
+            SeekFrom::Current(i) => i,
+        }
+    }
+
+    pub(crate) fn whence(self) -> i32 {
+        match self {
+            SeekFrom::Start(_) => 0,
+            SeekFrom::End(_) => 2,
+            SeekFrom::Current(_) => 1,
+        }
+    }
+}
+
+impl From<SeekFrom> for embedded_io::SeekFrom {
+    fn from(s: SeekFrom) -> Self {
+        match s {
+            SeekFrom::Start(v) => Self::Start(v.into()),
+            SeekFrom::End(v) => Self::End(v.into()),
+            SeekFrom::Current(v) => Self::Current(v.into()),
+        }
+    }
+}
+
+impl TryFrom<embedded_io::SeekFrom> for SeekFrom {
+    type Error = Error;
+
+    fn try_from(value: embedded_io::SeekFrom) -> Result<Self> {
+        match value {
+            embedded_io::SeekFrom::Start(v) => {
+                Ok(SeekFrom::Start(v.try_into().map_err(|_| Error::Invalid)?))
+            }
+            embedded_io::SeekFrom::End(v) => {
+                Ok(SeekFrom::End(v.try_into().map_err(|_| Error::Invalid)?))
+            }
+
+            embedded_io::SeekFrom::Current(v) => {
+                Ok(SeekFrom::Current(v.try_into().map_err(|_| Error::Invalid)?))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

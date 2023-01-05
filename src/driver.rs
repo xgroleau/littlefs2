@@ -4,7 +4,7 @@
 pub use generic_array::ArrayLength;
 use littlefs2_sys as ll;
 
-use crate::io::Result;
+use crate::Result;
 
 /// Users of this library provide a "storage driver" by implementing this trait.
 ///

@@ -4,8 +4,9 @@ use generic_array::typenum::consts;
 use crate::{
     driver,
     fs::{Attribute, File, Filesystem},
-    io::{Error, Read, Result, SeekFrom},
+    Error, Result, SeekFrom,
 };
+use embedded_io::blocking::Read;
 
 ram_storage!(
     name=OtherRamStorage,

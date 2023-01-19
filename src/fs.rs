@@ -207,7 +207,7 @@ impl Metadata {
 
 impl From<ll::lfs_info> for Metadata {
     fn from(info: ll::lfs_info) -> Self {
-        let file_type = match info.type_ as u32 {
+        let file_type = match info.type_ as i32 {
             ll::lfs_type_LFS_TYPE_DIR => FileType::Dir,
             ll::lfs_type_LFS_TYPE_REG => FileType::File,
             _ => {

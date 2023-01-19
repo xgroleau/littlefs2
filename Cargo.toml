@@ -27,8 +27,7 @@ optional = true
 version = "0.3"
 
 [dependencies.littlefs2-sys]
-git = "https://github.com/xgroleau/littlefs2-sys"
-tag = "v0.1.8"
+path = "./littlefs2-sys"
 version = "0.1.8"
 
 [dependencies.serde]

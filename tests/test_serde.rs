@@ -1,4 +1,10 @@
-use littlefs2::{driver, fs::Filesystem, path::Path, ram_storage, Result};
+use littlefs2::{
+    driver,
+    fs::Filesystem,
+    io::Result,
+    path::Path,
+    ram_storage,
+};
 
 use serde::{Deserialize, Serialize};
 use ssmarshal::{deserialize, serialize};

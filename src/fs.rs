@@ -20,7 +20,7 @@ struct Cache<Storage: driver::Storage> {
     read: Bytes<Storage::CACHE_SIZE>,
     write: Bytes<Storage::CACHE_SIZE>,
     // lookahead: aligned::Aligned<aligned::A4, Bytes<Storage::LOOKAHEAD_SIZE>>,
-    lookahead: generic_array::GenericArray<u32, Storage::LOOKAHEADWORDS_SIZE>,
+    lookahead: generic_array::GenericArray<u64, Storage::LOOKAHEAD_SIZE>,
 }
 
 impl<S: driver::Storage> Cache<S> {
@@ -28,7 +28,6 @@ impl<S: driver::Storage> Cache<S> {
         Self {
             read: Default::default(),
             write: Default::default(),
-            // lookahead: aligned::Aligned(Default::default()),
             lookahead: Default::default(),
         }
     }
@@ -60,7 +59,7 @@ impl<Storage: driver::Storage> Allocation<Storage> {
         let block_size: u32 = Storage::BLOCK_SIZE as _;
         let metadata_max: u32 = Storage::METADATA_MAX as _;
         let cache_size: u32 = <Storage as driver::Storage>::CACHE_SIZE::U32;
-        let lookahead_size: u32 = 4 * <Storage as driver::Storage>::LOOKAHEADWORDS_SIZE::U32;
+        let lookahead_size: u32 = 8 * <Storage as driver::Storage>::LOOKAHEAD_SIZE::U32;
         let block_cycles: i32 = Storage::BLOCK_CYCLES as _;
         let block_count: u32 = Storage::BLOCK_COUNT as _;
 
@@ -70,7 +69,7 @@ impl<Storage: driver::Storage> Allocation<Storage> {
 
         debug_assert!(read_size > 0);
         debug_assert!(write_size > 0);
-        // https://github.com/ARMmbed/littlefs/issues/264
+        // https://github.com/littlefs-project/littlefs/issues/264
         // Technically, 104 is enough.
         debug_assert!(block_size >= 128);
         debug_assert!(cache_size > 0);
@@ -207,7 +206,7 @@ impl Metadata {
 
 impl From<ll::lfs_info> for Metadata {
     fn from(info: ll::lfs_info) -> Self {
-        let file_type = match info.type_.into() {
+        let file_type = match info.type_ as ll::lfs_type {
             ll::lfs_type_LFS_TYPE_DIR => FileType::Dir,
             ll::lfs_type_LFS_TYPE_REG => FileType::File,
             _ => {
@@ -472,9 +471,7 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
         let off = (block * block_size + off) as usize;
         let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(buffer as *mut u8, size as usize) };
 
-        // TODO
-        storage.read(off, buf).unwrap();
-        0
+        io::error_code_from(storage.read(off, buf))
     }
 
     /// C callback interface used by LittleFS to program data with the lower level system below the
@@ -494,9 +491,7 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
         let off = (block * block_size + off) as usize;
         let buf: &[u8] = unsafe { slice::from_raw_parts(buffer as *const u8, size as usize) };
 
-        // TODO
-        storage.write(off, buf).unwrap();
-        0
+        io::error_code_from(storage.write(off, buf))
     }
 
     /// C callback interface used by LittleFS to erase data with the lower level system below the
@@ -506,9 +501,7 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
         let storage = unsafe { &mut *((*c).context as *mut Storage) };
         let off = block as usize * Storage::BLOCK_SIZE as usize;
 
-        // TODO
-        storage.erase(off, Storage::BLOCK_SIZE as usize).unwrap();
-        0
+        io::error_code_from(storage.erase(off, Storage::BLOCK_SIZE as usize))
     }
 
     /// C callback interface used by LittleFS to sync data with the lower level interface below the
@@ -838,8 +831,8 @@ impl<'a, 'b, Storage: driver::Storage> File<'a, 'b, Storage> {
     /// TODO: check if this can be closed >1 times, if so make it safe
     ///
     /// Update: It seems like there's an assertion on a flag called `LFS_F_OPENED`:
-    /// https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2549
-    /// https://github.com/ARMmbed/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2566
+    /// https://github.com/littlefs-project/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2549
+    /// https://github.com/littlefs-project/littlefs/blob/4c9146ea539f72749d6cc3ea076372a81b12cb11/lfs.c#L2566
     ///
     /// - On second call, shouldn't find ourselves in the "mlist of mdirs"
     /// - Since we don't have dynamically allocated buffers, at least we don't hit the double-free.

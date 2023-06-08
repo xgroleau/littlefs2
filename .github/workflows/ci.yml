@@ -10,7 +10,9 @@ jobs:
       matrix:
         target:
           - thumbv7em-none-eabi
+          - thumbv6m-none-eabi # like the Cortex-M0+
           - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
 
     steps:
       - name: Install build dependencies
@@ -20,15 +22,11 @@ jobs:
       - uses: fiam/arm-none-eabi-gcc@v1
         with:
           release: "9-2020-q2"
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-          components: llvm-tools-preview
 
-      - uses: actions/checkout@v2
+      - name: Install rust
+        run: rustup show
+
+      - uses: actions/checkout@v3
       - name: Build
         run: cargo build --release --verbose
 
@@ -40,7 +38,9 @@ jobs:
 
       - name: Build Documentation
         run: cargo doc --no-deps
+
       - name: Deploy Docs
+        if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

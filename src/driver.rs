@@ -53,12 +53,8 @@ pub trait Storage {
     /// Must be a factor of `BLOCK_SIZE`.
     type CACHE_SIZE: ArrayLength<u8>;
 
-    /// littlefs itself has a `LOOKAHEAD_SIZE`, which must be a multiple of 8,
-    /// as it stores data in a bitmap. It also asks for 4-byte aligned buffers.
-    /// Hence, we further restrict `LOOKAHEAD_SIZE` to be a multiple of 32.
-    /// Our LOOKAHEADWORDS_SIZE is this multiple.
-    type LOOKAHEADWORDS_SIZE: ArrayLength<u32>;
-    // type LOOKAHEAD_SIZE: ArrayLength<u8>;
+    /// Size of the lookahead buffer used by littlefs, measured in multiples of 8 bytes.
+    type LOOKAHEAD_SIZE: ArrayLength<u64>;
 
     ///// Maximum length of a filename plus one. Stored in superblock.
     ///// Should default to 255+1, but associated type defaults don't exist currently.

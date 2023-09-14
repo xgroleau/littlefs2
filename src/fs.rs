@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub type Bytes<SIZE> = generic_array::GenericArray<u8, SIZE>;
 
 use crate::{
-    driver, error,
+    driver, error, path,
     path::{Path, PathBuf},
     Error, Result, SeekFrom,
 };
@@ -340,7 +340,6 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
             Ok(())
         })?;
         if !skipped_any && path != path!("") && path != path!("/") {
-            debug_now!("removing directory {} too", &path);
             self.remove_dir(path)?;
         }
         Ok(files_removed)

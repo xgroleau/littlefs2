@@ -282,7 +282,7 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
         #[cfg(feature = "defmt")]
         if val.is_none() {
             defmt::warn!(
-                "Received invalid block number: {}, total is: ",
+                "Received invalid block number: {}, total is: {}",
                 blocks,
                 self.total_blocks()
             );

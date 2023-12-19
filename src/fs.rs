@@ -277,8 +277,18 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
     /// by this method available, at any given time.
     pub fn available_blocks(&self) -> Result<usize> {
         let return_code = unsafe { ll::lfs_fs_size(&mut self.alloc.borrow_mut().state) };
-        error::result_from(return_code, return_code)
-            .map(|blocks| self.total_blocks() - blocks as usize)
+        error::result_from(return_code, return_code).map(|blocks| {
+            let val = self.total_blocks().checked_sub(blocks as usize);
+            #[cfg(feature = "defmt")]
+            if val.is_none() {
+                defmt::warn!(
+                    "Received invalid block number: {}, total is: ",
+                    blocks,
+                    self.total_blocks()
+                );
+            }
+            val.unwrap_or_default()
+        })
     }
 
     /// Available number of unused bytes in the filesystem

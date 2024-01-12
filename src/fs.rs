@@ -287,7 +287,7 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
                 self.total_blocks()
             );
         }
-        val.ok_or(Error::Corruption)
+        Ok(val.unwrap_or(0))
     }
 
     /// Available number of unused bytes in the filesystem
@@ -298,6 +298,19 @@ impl<Storage: driver::Storage> Filesystem<'_, Storage> {
     pub fn available_space(&self) -> Result<usize> {
         self.available_blocks()
             .map(|blocks| blocks * Storage::BLOCK_SIZE)
+    }
+
+    /// Attempt to make the filesystem consistent and ready for writing
+    ///
+    /// Calling this function is not required, consistency will be implicitly
+    /// enforced on the first operation that writes to the filesystem, but this
+    /// function allows the work to be performed earlier and without other
+    /// filesystem changes.
+    ///
+    /// Returns a negative error code on failure.    pub fn gc(&self) -> Result<()> {
+    pub fn gc(&self) -> Result<()> {
+        let return_code = unsafe { ll::lfs_fs_gc(&mut self.alloc.borrow_mut().state) };
+        error::result_from((), return_code)
     }
 
     /// Remove a file or directory.
